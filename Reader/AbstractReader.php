@@ -28,13 +28,4 @@ abstract class AbstractReader implements ReaderInterface
     {
         return file_get_contents(Repository::DIR.'/'.$fileName);
     }
-
-    /**
-     * @param string $fileName
-     * @return void
-     */
-    public function getDataToObject(string $fileName): void
-    {
-
-    }
 }
