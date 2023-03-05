@@ -2,6 +2,11 @@
 
 declare(strict_types=1);
 
+namespace TestOnly;
+
+use stdClass;
+use TestOnly\Reader\ReaderInterface;
+
 class Service
 {
     const URL = 'https://int.dev.onlyplay.net/test_api/';
@@ -14,40 +19,30 @@ class Service
     {
         $this->key = $key;
         $this->providerId = $providerId;
-        $this->options = [
-            'http' => [
-                'method' => 'POST',
-                'header' => 'Content-Type: application/json',
-                'timeout' => 3
-            ]
-        ];
+        $this->options = array(
+            CURLOPT_POST => true,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT => 3,
+            CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
+        );
     }
 
     /**
-     * @param array $data
+     * @param ReaderInterface $data
      * @param string $requestType
      * @return stdClass|null
      */
-    public function sendRequest(array $data, string $requestType): ?stdClass
+    public function sendRequest(ReaderInterface $data, string $requestType): ?stdClass
     {
-        if($requestType === 'start_round') $this->generateRequestBodyStart($data);
-        elseif($requestType === 'end_round') $this->generateRequestBodyEnd($data);
-        else return $this->createOb('Invalid type round');
+        $this->generateRequestBody($data, $requestType);
 
-        $response = file_get_contents(
-            self::URL . $requestType,
-            false,
-            stream_context_create($this->options)
-        );
+        $ch = curl_init();
+        curl_setopt_array($ch, $this->options);
+        $response = curl_exec($ch);
+        curl_close($ch);
 
         if($response === false) return $this->createOb('HTTP request failed!');
-        elseif(empty($response)) return $this->createOb('Response is empty.');
-
-        // фикс ответа сервера
-        $response = stristr($response, '{"');
-        if(strpos($response, '"}') === false ) $response .='"}';
-
-        return json_decode($response) ?? $this->createOb($response);
+        return !empty($response) ? (object)json_decode($response) : $this->createOb('Response is empty');
     }
 
     /**
@@ -60,35 +55,24 @@ class Service
     }
 
     /**
-     * @param array $data
+     * @param ReaderInterface $data
+     * @param string $requestType
      * @return void
      */
-    private function generateRequestBodyStart(array $data): void
+    private function generateRequestBody(ReaderInterface $data, string $requestType): void
     {
         $requestData = [
-            'round_id' => $data['roundId'] ?? $data['round-id'],
-            'player_id' => $data['playerId'] ?? $data['player-id'],
+            'round_id' => $data->roundId,
             'provider_id' => $this->providerId,
         ];
 
-        $requestData['sign'] = $this->generateSignature(json_encode($requestData));
-        $this->options['http']['content'] = json_encode($requestData);
-    }
-
-    /**
-     * @param array $data
-     * @return void
-     */
-    private function generateRequestBodyEnd(array $data): void
-    {
-        $requestData = [
-            'round_id' => $data['roundId'] ?? $data['round-id'],
-            'reward' => $data['reward'],
-            'provider_id' => $this->providerId,
-        ];
+        if ($requestType === 'start_round')  $requestData['player_id'] = $data->playerId;
+        elseif ($requestType === 'end_round')  $requestData['reward'] = $data->reward;
 
         $requestData['sign'] = $this->generateSignature(json_encode($requestData));
-        $this->options['http']['content'] = json_encode($requestData);
+
+        $this->options[CURLOPT_POSTFIELDS] = json_encode($requestData);
+        $this->options[CURLOPT_URL] = self::URL . $requestType;
     }
 
     /**
